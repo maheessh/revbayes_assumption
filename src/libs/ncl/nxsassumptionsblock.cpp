@@ -36,6 +36,7 @@ class BogusToIndMapper: public NxsLabelToIndicesMapper
 			{
 			return UINT_MAX;
 			}
+		//This is where you make changes for the range in the dataset
 		virtual unsigned GetIndicesForLabel(const std::string &label, NxsUnsignedSet *) const
 			{
 			queried=true;
@@ -301,12 +302,27 @@ bool NxsTransformationManager::IsIntType(const std::string & n) const
 /*!
 	Returns true if `n` is the name of a known type (standard or user type) -- not case-sensitive.
 */
-bool NxsTransformationManager::IsValidTypeName(const std::string & n) const
-	{
-	std::string capName(n.c_str());
-	NxsString::to_upper(capName);
-	return (allTypeNames.count(capName) > 0);
-	}
+bool NxsTransformationManager::IsValidTypeName(const std::string &n) const
+{
+    // Convert the input name to uppercase for case-insensitive comparison
+    std::string capName(n);
+    std::transform(capName.begin(), capName.end(), capName.begin(), ::toupper);
+    
+    // Debug statement to log the name being validated
+    std::cout << "Validating type name: " << capName << std::endl;
+
+    // Check if the name is in the set of valid type names
+    bool isValid = (allTypeNames.count(capName) > 0);
+    
+    // Debug statement to log whether the name is valid or not
+    if (isValid) {
+        std::cout << "Type name " << capName << " is recognized." << std::endl;
+    } else {
+        std::cout << "Type name " << capName << " is not recognized." << std::endl;
+    }
+
+    return isValid;
+}
 
 /*!
 	Raises an NxsNCLAPIException if the `n` is not a type name.
@@ -1334,41 +1350,114 @@ NxsAssumptionsBlockAPI * NxsAssumptionsBlock::DealWithPossibleParensInCharDepend
 
 
 /*!
-	Reads and stores information contained in the command TypeSet within an ASSUMPTIONS block.
+    Reads and stores information contained in the command TypeSet within an ASSUMPTIONS block.
 */
-void NxsAssumptionsBlock::HandleTypeSet(
-  NxsToken &token)	/* the token used to read from in */
-	{
-	errormsg.clear();
-	bool asterisked = false;
-	token.GetNextToken();
-	if (token.Equals("*"))
-		{
-		asterisked = true;
-		token.GetNextToken();
-		}
-	NxsString typeset_name = token.GetToken();
-	//typeset_name.ToUpper();
-	NxsAssumptionsBlockAPI * effectiveAssumpBlock = DealWithPossibleParensInCharDependentCmd(token, "TypeSet");
-	token.GetNextToken();
-	NCL_ASSERT(effectiveAssumpBlock);
-	NxsPartition newPartition;
-	NxsCharactersBlockAPI *cbp = effectiveAssumpBlock->GetCharBlockPtr();
-	NCL_ASSERT(cbp);
-	effectiveAssumpBlock->ReadPartitionDef(newPartition, *cbp, typeset_name, "Character", "TypeSet", token, false, false, false);
-	NxsTransformationManager &ctm = cbp->GetNxsTransformationManagerRef();
-	for (NxsPartition::const_iterator groupIt = newPartition.begin(); groupIt != newPartition.end(); ++groupIt)
-		{
-		if (!ctm.IsValidTypeName(groupIt->first))
-			{
-			errormsg << "The group name " << groupIt->first << " found in a TypeSet command does not correspond to a known type";
-			throw NxsException(errormsg, token);
-			}
-		}
-	NxsTransformationManager &tm = effectiveAssumpBlock->GetNxsTransformationManagerRef();
-	ctm.AddTypeSet(typeset_name, newPartition, asterisked);
-	tm.AddTypeSet(typeset_name, newPartition, asterisked);
-	}
+// Helper function to parse ranges
+std::vector<int> ParseRanges(const std::string& rangeStr) {
+    std::vector<int> indices;
+    std::stringstream ss(rangeStr);
+    std::string item;
+    
+    while (std::getline(ss, item, ',')) {
+        std::stringstream rangeSS(item);
+        std::string range;
+        while (std::getline(rangeSS, range, '-')) {
+            int start = std::stoi(range);
+            int end = start;
+            if (rangeSS.peek() == '-') {
+                rangeSS.ignore();
+                rangeSS >> end;
+            }
+            for (int i = start; i <= end; ++i) {
+                indices.push_back(i);
+            }
+        }
+    }
+    std::sort(indices.begin(), indices.end());
+    return indices;
+}
+
+void NxsAssumptionsBlock::HandleTypeSet(NxsToken &token)
+{
+    errormsg.clear();
+    bool asterisked = false;
+    token.GetNextToken();
+    if (token.Equals("*"))
+    {
+        asterisked = true;
+        token.GetNextToken();
+    }
+    NxsString typeset_name = token.GetToken();
+    NxsAssumptionsBlockAPI *effectiveAssumpBlock = DealWithPossibleParensInCharDependentCmd(token, "TypeSet");
+    token.GetNextToken();
+    NCL_ASSERT(effectiveAssumpBlock);
+    NxsPartition newPartition;
+    NxsCharactersBlockAPI *cbp = effectiveAssumpBlock->GetCharBlockPtr();
+    NCL_ASSERT(cbp);
+
+    // Example Symbols
+    std::vector<std::string> symbolsOrder = {"0", "1", "2", "3"};
+
+    // Example Matrices
+    NxsIntStepMatrix::IntMatrix intMatrix = {
+        {0, 1, 2, 3}, // Example distances between symbols
+        {1, 0, 1, 2},
+        {2, 1, 0, 1},
+        {3, 2, 1, 0}
+    };
+
+    NxsRealStepMatrix::DblMatrix dblMatrix = {
+        {0.0, 1.0, 2.0, 3.0}, // Example distances or real values between symbols
+        {1.0, 0.0, 1.0, 2.0},
+        {2.0, 1.0, 0.0, 1.0},
+        {3.0, 2.0, 1.0, 0.0}
+    };
+
+    NxsIntStepMatrix intMatrixInstance(symbolsOrder, intMatrix);
+    NxsRealStepMatrix realMatrixInstance(symbolsOrder, dblMatrix);
+
+    NxsTransformationManager &manager = cbp->GetNxsTransformationManagerRef();
+
+    std::string customUnordName = "custom_unord";
+    manager.AddIntType(customUnordName, intMatrixInstance);
+
+    std::string customOrdName = "custom_ord";
+    manager.AddRealType(customOrdName, realMatrixInstance);
+
+    std::string tokenString;
+    while (token.GetNextToken()) {
+        tokenString = token.GetToken();
+        std::string type;
+        std::string rangeStr;
+        size_t colonPos = tokenString.find(':');
+        if (colonPos != std::string::npos) {
+            type = tokenString.substr(0, colonPos);
+            rangeStr = tokenString.substr(colonPos + 1);
+        }
+        else {
+            throw std::runtime_error("Invalid TypeSet format");
+        }
+
+        // Parse ranges and handle them
+        std::vector<int> indices = ParseRanges(rangeStr);
+        NxsPartition partition;
+        for (int index : indices) {
+            partition[index] = type;
+        }
+        
+        // Validate and add partition
+        for (const auto &pair : partition) {
+            if (!manager.IsValidTypeName(pair.second)) {
+                errormsg = "The type name " + std::string(pair.second.c_str()) + " is not valid.";
+                throw NxsException(errormsg, token);
+            }
+        }
+        
+        manager.AddTypeSet(typeset_name, partition, asterisked);
+    }
+
+    effectiveAssumpBlock->ReadPartitionDef(newPartition, *cbp, typeset_name, "Character", "TypeSet", token, false, false, false);
+}
 
 
 void NxsAssumptionsBlock::HandleUserType(NxsToken& token)
