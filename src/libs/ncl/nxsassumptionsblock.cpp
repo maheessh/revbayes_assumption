@@ -1336,39 +1336,149 @@ NxsAssumptionsBlockAPI * NxsAssumptionsBlock::DealWithPossibleParensInCharDepend
 /*!
 	Reads and stores information contained in the command TypeSet within an ASSUMPTIONS block.
 */
-void NxsAssumptionsBlock::HandleTypeSet(
-  NxsToken &token)	/* the token used to read from in */
-	{
-	errormsg.clear();
-	bool asterisked = false;
-	token.GetNextToken();
-	if (token.Equals("*"))
-		{
-		asterisked = true;
-		token.GetNextToken();
-		}
-	NxsString typeset_name = token.GetToken();
-	//typeset_name.ToUpper();
-	NxsAssumptionsBlockAPI * effectiveAssumpBlock = DealWithPossibleParensInCharDependentCmd(token, "TypeSet");
-	token.GetNextToken();
-	NCL_ASSERT(effectiveAssumpBlock);
-	NxsPartition newPartition;
-	NxsCharactersBlockAPI *cbp = effectiveAssumpBlock->GetCharBlockPtr();
-	NCL_ASSERT(cbp);
-	effectiveAssumpBlock->ReadPartitionDef(newPartition, *cbp, typeset_name, "Character", "TypeSet", token, false, false, false);
-	NxsTransformationManager &ctm = cbp->GetNxsTransformationManagerRef();
-	for (NxsPartition::const_iterator groupIt = newPartition.begin(); groupIt != newPartition.end(); ++groupIt)
-		{
-		if (!ctm.IsValidTypeName(groupIt->first))
-			{
-			errormsg << "The group name " << groupIt->first << " found in a TypeSet command does not correspond to a known type";
-			throw NxsException(errormsg, token);
-			}
-		}
-	NxsTransformationManager &tm = effectiveAssumpBlock->GetNxsTransformationManagerRef();
-	ctm.AddTypeSet(typeset_name, newPartition, asterisked);
-	tm.AddTypeSet(typeset_name, newPartition, asterisked);
-	}
+// Function to parse the ranges and group them correctly
+std::map<std::string, std::vector<std::pair<int, int>>> ParseTypeSetBlock(const std::string& typeSetBlock) {
+    std::map<std::string, std::vector<std::pair<int, int>>> groupedRanges;
+    std::stringstream ss(typeSetBlock);
+    std::string group;
+
+    while (std::getline(ss, group, ',')) {
+        // Find the colon separating the group name and the ranges
+        size_t colonPos = group.find(':');
+        if (colonPos == std::string::npos) {
+            throw std::runtime_error("Expecting ':' after group name in TypeSet definition.");
+        }
+
+        std::string groupName = group.substr(0, colonPos);
+        // Trim whitespace from the group name
+        groupName.erase(0, groupName.find_first_not_of(' '));
+        groupName.erase(groupName.find_last_not_of(' ') + 1);
+        
+        std::string ranges = group.substr(colonPos + 1);
+        std::stringstream rangeStream(ranges);
+        std::string range;
+        while (std::getline(rangeStream, range, ' ')) {
+            if (range.empty()) continue;
+            size_t hyphenPos = range.find('-');
+            if (hyphenPos != std::string::npos) {
+                int start = std::stoi(range.substr(0, hyphenPos));
+                int end = std::stoi(range.substr(hyphenPos + 1));
+                groupedRanges[groupName].emplace_back(start, end);
+            } else {
+                int single = std::stoi(range);
+                groupedRanges[groupName].emplace_back(single, single);
+            }
+        }
+    }
+
+    return groupedRanges;
+}
+
+// Helper function to convert ranges to string
+std::string RangesToString(const std::vector<std::pair<int, int>>& ranges) {
+    std::string result;
+    for (const auto& range : ranges) {
+        if (!result.empty()) {
+            result += ", ";
+        }
+        if (range.first == range.second) {
+            result += std::to_string(range.first);
+        } else {
+            result += std::to_string(range.first) + "-" + std::to_string(range.second);
+        }
+    }
+    return result;
+}
+
+// Helper function to expand ranges into individual numbers and wrap them in parentheses
+std::string ExpandRanges(const std::vector<std::pair<int, int>>& ranges) {
+    std::string result = "(";
+    for (const auto& range : ranges) {
+        for (int i = range.first; i <= range.second; ++i) {
+            if (result.length() > 1) { // Skip initial bracket
+                result += " ";
+            }
+            result += std::to_string(i);
+        }
+    }
+    result += ")";
+    return result;
+}
+
+// Example usage within NxsAssumptionsBlock
+void NxsAssumptionsBlock::HandleTypeSet(NxsToken &token) {
+    errormsg.clear();
+    bool asterisked = false;
+    token.GetNextToken();
+
+    if (token.Equals("*")) {
+        asterisked = true;
+        token.GetNextToken();
+    }
+
+    std::string typeset_name = token.GetToken();
+    NxsAssumptionsBlockAPI *effectiveAssumpBlock = DealWithPossibleParensInCharDependentCmd(token, "TypeSet");
+    token.GetNextToken();
+    NCL_ASSERT(effectiveAssumpBlock);
+    NxsPartition newPartition;
+    NxsCharactersBlockAPI *cbp = effectiveAssumpBlock->GetCharBlockPtr();
+    NCL_ASSERT(cbp);
+
+    std::string typeSetContent;
+
+    while (!token.Equals(";")) {
+        typeSetContent += token.GetToken() + " ";
+        token.GetNextToken();
+    }
+
+    // Vectors to store ordered and unordered groups separately
+    std::vector<std::pair<int, int>> ordRanges;
+    std::vector<std::pair<int, int>> unordRanges;
+
+    // Pass the content to the helper function
+    try {
+        auto parsedGroups = ParseTypeSetBlock(typeSetContent);
+
+        // Separate the ranges into ordered and unordered vectors
+        for (const auto& [group, ranges] : parsedGroups) {
+            if (group == "ord") {
+                ordRanges.insert(ordRanges.end(), ranges.begin(), ranges.end());
+            } else if (group == "unord") {
+                unordRanges.insert(unordRanges.end(), ranges.begin(), ranges.end());
+            } else {
+                std::cerr << "Unknown group: " << group << std::endl;
+            }
+        }
+
+        // Format the ordered and unordered groups into strings
+        std::string ordString = RangesToString(ordRanges);
+        std::string unordString = RangesToString(unordRanges);
+
+        // Expand the ranges into individual numbers and wrap them in parentheses
+        std::string ordExpanded = ExpandRanges(ordRanges);
+        std::string unordExpanded = ExpandRanges(unordRanges);
+
+        // Calculate padding to align the output neatly
+        int maxLen = std::max(ordString.length(), unordString.length());
+        std::string padding = std::string(maxLen - ordString.length(), ' ');
+
+        // Print the ordered and unordered groups side by side with proper spacing
+        std::cout << "Ordered: " << ordString << padding << " |  Unordered: " << unordString << std::endl;
+
+        // Calculate padding for expanded format
+        int maxExpandedLen = std::max(ordExpanded.length(), unordExpanded.length());
+        std::string expandedPadding = std::string(maxExpandedLen - ordExpanded.length(), ' ');
+
+        // Print the expanded ordered and unordered groups in parentheses
+        std::cout << "Partition Ordered: " << ordExpanded << padding << " | Partition Unordered: " << unordExpanded << std::endl;
+
+    } catch (const std::exception& e) {
+        GenerateNxsException(token, e.what());
+    }
+
+    effectiveAssumpBlock->ReadPartitionDef(newPartition, *cbp, typeset_name, "Character", "TypeSet", token, false, false, false);
+}
+
 
 
 void NxsAssumptionsBlock::HandleUserType(NxsToken& token)

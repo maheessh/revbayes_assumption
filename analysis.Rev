@@ -1,0 +1,115 @@
+# Read the discrete character data from the NEXUS file
+morpho <- readDiscreteCharacterData("/home/ansible/software/revbayes/test_nexus.nex")
+
+# Extract taxa information from the character data
+taxa <- morpho.taxa()
+
+# Initialize vectors for moves and monitors
+moves <- VectorMoves()
+monitors <- VectorMonitors()
+
+# Calculate the number of taxa and branches
+n_taxa <- taxa.size()
+num_branches <- 2 * n_taxa - 2
+
+# Define a prior on the branch length using an exponential distribution
+br_len_lambda ~ dnExp(0.2)
+
+# Add moves related to branch length scaling
+moves.append(mvScale(br_len_lambda, weight=2))
+
+# Define a uniform topology and branch length prior for the phylogeny
+phylogeny ~ dnUniformTopologyBranchLength(taxa, branchLengthDistribution=dnExponential(br_len_lambda))
+
+# Add tree moves (NNI and SPR) and branch length scaling moves
+moves.append(mvNNI(phylogeny, weight=num_branches / 2.0))
+moves.append(mvSPR(phylogeny, weight=num_branches / 10.0))
+moves.append(mvBranchLengthScale(phylogeny, weight=num_branches))
+
+# Define a tree length variable for the phylogeny
+tree_length := phylogeny.treeLength()
+
+# Define a reversible-jump mixture prior on alpha
+alpha ~ dnReversibleJumpMixture(1E8, dnUniform(0, 1E8), 0.5)
+alpha.setValue(1.0)
+
+# Add reversible jump and scaling moves for alpha
+moves.append(mvRJSwitch(alpha, weight=10.0))
+moves.append(mvScale(alpha, weight=10.0))
+
+# Define an indicator variable for alpha
+alpha_indicator := ifelse(alpha == 1E8, 0, 1)
+
+# Define a categorical distribution for rates_indicator
+rates_indicator ~ dnCategorical(simplex(rep(1, 15)))
+
+# Define a vector of rates
+rates_vec <- v(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+rates_indicator.setValue(15)
+
+# Add a move for the rates indicator
+moves.append(mvRandomGeometricWalk(rates_indicator, weight=10.0, tune=FALSE))
+
+# Set rates based on the rates indicator
+rates := rates_vec[rates_indicator]
+
+# Discretize the gamma distribution for site rates
+site_rates := fnDiscretizeGamma(alpha, alpha, rates)
+
+# Set maximum number of states
+n_max_states <- 7
+idx <- 1
+
+# Define ordered and unordered characters
+ordered <- v(1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45)
+unordered <- v(8, 27)
+
+# Create copies of the morpho data for unordered and ordered partitions
+morpho_unordered <- morpho.copy()
+morpho_unordered.excludeCharacter(unordered)
+
+# Process unordered characters by state
+for (i in 1:n_max_states) {
+    morpho_unordered_bystate[i] <- morpho_unordered.copy()
+    morpho_unordered_bystate[i].setNumStatesPartition(i)
+    nc <- morpho_unordered_bystate[i].nchar()
+
+    if (nc > 0) {
+        q[idx] <- fnJC(i)
+        m_morph[idx] ~ dnPhyloCTMC(tree=phylogeny, Q=q[idx], nSites=nc, siteRates=site_rates, type="Standard")
+        m_morph[idx].clamp(morpho_unordered_bystate[i])
+        idx <- idx + 1
+    }
+}
+
+# Repeat the same steps for ordered characters
+morpho_ordered <- morpho.copy()
+morpho_ordered.excludeCharacter(unordered)
+
+for (i in 1:n_max_states) {
+    morpho_ordered_bystate[i] <- morpho_ordered.copy()
+    morpho_ordered_bystate[i].setNumStatesPartition(i)
+    nc <- morpho_ordered_bystate[i].nchar()
+
+    if (nc > 0) {
+        q[idx] <- fnOrderedRateMatrix(i)
+        m_morph[idx] ~ dnPhyloCTMC(tree=phylogeny, Q=q[idx], nSites=nc, siteRates=site_rates, type="Standard")
+        m_morph[idx].clamp(morpho_ordered_bystate[i])
+        idx <- idx + 1
+    }
+}
+
+# Define the model
+mymodel <- model(phylogeny)
+
+# Append monitors to the list
+monitors.append(mnModel(filename="output/test.log", printgen=100))
+monitors.append(mnFile(filename="output/test.trees", printgen=100, phylogeny))
+monitors.append(mnScreen(printgen=100))
+
+# Set up and run the MCMC analysis
+mymcmc <- mcmc(mymodel, monitors, moves, nrun=2)
+mymcmc.run(generations=10000000)
+
+# Quit the session
+q()

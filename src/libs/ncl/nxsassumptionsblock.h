@@ -58,7 +58,7 @@ class NxsAssumptionsBlockAPI
 		virtual void AddTreePartition(const std::string & name, const NxsPartition &) = 0;
 		virtual void AddCodeSet(const std::string & name, const NxsPartition &, bool asterisked) = 0;
 		virtual void AddCodonPosSet(const std::string & name, const NxsPartition &, bool asterisked) = 0;
-
+		
 		virtual void FlagCharBlockAsUsed() = 0;
 		virtual void FlagTaxaBlockAsUsed() = 0;
 		virtual void FlagTreesBlockAsUsed() = 0;
@@ -248,6 +248,10 @@ class NxsAssumptionsBlock
 			{
 			gapsAsNewstate = v;
 			}
+		// New declarations added to match cpp definitions
+		void ReadPartitionDef(NxsPartition&, const NxsCharactersBlockAPI&, const std::string&, const std::string&, const std::string&, NxsToken&, bool, bool, bool);
+		std::pair<int, int> ParseRange(const std::string &);
+		void ValidatePartition(const NxsPartition&, const NxsCharactersBlockAPI&, const std::string&);
 
 
 	protected:

@@ -293,17 +293,21 @@ NxsBlock::NxsBlock()
  	Sets errormsg and raises a NxsException on failure.
 	`contextString` is used in error messages:
 		"Expecting '=' ${contextString} but found..."
-*/void NxsBlock::DemandIsAtEquals(NxsToken &token, const char *contextString) const
-	{
-	if (!token.Equals("="))
-		{
-		errormsg = "Expecting '=' ";
-		if (contextString)
-			errormsg.append(contextString);
-		errormsg << " but found " << token.GetToken() << " instead";
-		throw NxsException(errormsg, token.GetFilePosition(), token.GetFileLine(), token.GetFileColumn());
-		}
-	}
+*/
+
+void NxsBlock::DemandIsAtEquals(NxsToken &token, const char *contextString) const {
+    if (!token.Equals("=") && !token.Equals(":")) {
+        errormsg = "Error parsing ";
+        if (contextString)
+            errormsg.append(contextString);
+        errormsg.append(": Expected '=' or ':' but found '");
+        errormsg.append(token.GetToken());
+        errormsg.append("' instead.");
+        throw NxsException(errormsg, token.GetFilePosition(), token.GetFileLine(), token.GetFileColumn());
+    }
+}
+
+
 
 void NxsBlock::DemandEquals(ProcessedNxsCommand::const_iterator & tokIt, const ProcessedNxsCommand::const_iterator & endIt, const char *contextString) const
 	{

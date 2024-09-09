@@ -389,7 +389,7 @@ void NxsReader::Add(
 	else
 		{
 		// Add new block to end of list
-		//
+		//HandleAssum
 		NxsBlock *curr;
 		for (curr = blockList; curr && curr->next;)
 			curr = curr->next;
