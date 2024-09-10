@@ -248,10 +248,6 @@ class NxsAssumptionsBlock
 			{
 			gapsAsNewstate = v;
 			}
-		// New declarations added to match cpp definitions
-		void ReadPartitionDef(NxsPartition&, const NxsCharactersBlockAPI&, const std::string&, const std::string&, const std::string&, NxsToken&, bool, bool, bool);
-		std::pair<int, int> ParseRange(const std::string &);
-		void ValidatePartition(const NxsPartition&, const NxsCharactersBlockAPI&, const std::string&);
 
 
 	protected:

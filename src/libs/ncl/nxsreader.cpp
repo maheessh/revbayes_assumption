@@ -23,6 +23,7 @@
 #include <climits>
 #include <sstream>
 #include <iterator>
+#include <iostream> 
 #include "nxsreader.h"
 #include "nxsdefs.h"
 #include "nxscharactersblock.h"
@@ -605,158 +606,180 @@ NxsBlock *NxsReader::CreateBlockFromFactories(const std::string & currBlockName,
 		-# If an appropriate block reader was found in steps 2 or 3 then ExecuteBlock() will be called.
 
 */
-void NxsReader::Execute(
-  NxsToken	&token,				/*!< the token object used to grab NxsReader tokens */
-  bool		notifyStartStop)	/*!< if true, ExecuteStarting and ExecuteStopping will be called */
-	{
-	bool signalHandlerInstalled = false;
-	unsigned numSigInts = 0;
-	if (NxsReader::nclCatchesSignals)
-		{
-		numSigInts = getNumSignalIntsCaught();
-		installNCLSignalHandler();
-		signalHandlerInstalled = true;
-		}
-	try {
-		CoreExecutionTasks(token, notifyStartStop);
-		}
-	catch (...)
-		{
-		if (signalHandlerInstalled)
-			uninstallNCLSignalHandler();
-		throw;
-		}
-	if (signalHandlerInstalled)
-		{
-		uninstallNCLSignalHandler();
-		if (numSigInts != getNumSignalIntsCaught())
-			throw NxsSignalCanceledParseException("Reading NEXUS content");
-		}
-	}
+void NxsReader::Execute(NxsToken &token, bool notifyStartStop)
+{
+    bool signalHandlerInstalled = false;
+    unsigned numSigInts = 0;
+    if (NxsReader::nclCatchesSignals)
+    {
+        numSigInts = getNumSignalIntsCaught();
+        installNCLSignalHandler();
+        signalHandlerInstalled = true;
+    }
+    try {
+        CoreExecutionTasks(token, notifyStartStop);
+    }
+    catch (...)
+    {
+        if (signalHandlerInstalled)
+            uninstallNCLSignalHandler();
+        throw;
+    }
+    if (signalHandlerInstalled)
+    {
+        uninstallNCLSignalHandler();
+        if (numSigInts != getNumSignalIntsCaught())
+            throw NxsSignalCanceledParseException("Reading NEXUS content");
+    }
+}
 
-/*! used internally to  do most of the work of Execute() */
-void NxsReader::CoreExecutionTasks(
-  NxsToken	&token,				/* the token object used to grab NxsReader tokens */
-  bool		notifyStartStop)	/* if true, ExecuteStarting and ExecuteStopping will be called */
-	{
-	unsigned numSigInts = NxsReader::getNumSignalIntsCaught();
-	const bool checkingSignals = NxsReader::getNCLCatchesSignals();
+void NxsReader::CoreExecutionTasks(NxsToken &token, bool notifyStartStop)
+{
+    unsigned numSigInts = NxsReader::getNumSignalIntsCaught();
+    const bool checkingSignals = NxsReader::getNCLCatchesSignals();
 
-	lastExecuteBlocksInOrder.clear();
-	currBlock = NULL;
+    lastExecuteBlocksInOrder.clear();
+    currBlock = NULL;
 
-	NxsString errormsg;
-	token.SetEOFAllowed(true);
+    NxsString errormsg;
+    token.SetEOFAllowed(true);
 
-	try
-		{
-		token.SetLabileFlagBit(NxsToken::saveCommandComments);
-		token.GetNextToken();
-		}
-	catch (NxsException& x)
-		{
-		NexusError(token.errormsg, 0, 0, 0);
-		return;
-		}
+    try
+    {
+        token.SetLabileFlagBit(NxsToken::saveCommandComments);
+        token.GetNextToken();
+    }
+    catch (NxsException &x)
+    {
+        NexusError(token.errormsg, 0, 0, 0);
+        return;
+    }
 
-	if (token.Equals("#NEXUS"))
-		{
-		token.SetLabileFlagBit(NxsToken::saveCommandComments);
-		token.GetNextToken();
-		}
-	else
-		{
-		errormsg = "Expecting #NEXUS to be the first token in the file, but found ";
-		errormsg += token.GetToken();
-		errormsg += " instead";
-		/*mth changed this to a warning instead of an error	 because of the large number
-			of files that violate this requirement.
-		*/
-		NexusWarn(errormsg,  NxsReader::AMBIGUOUS_CONTENT_WARNING, token.GetFilePosition(), token.GetFileLine(), token.GetFileColumn());
-		}
+    if (token.Equals("#NEXUS"))
+    {
+        token.SetLabileFlagBit(NxsToken::saveCommandComments);
+        token.GetNextToken();
+    }
+    else
+    {
+        errormsg = "Expecting #NEXUS to be the first token in the file, but found ";
+        errormsg += token.GetToken();
+        errormsg += " instead";
+        NexusWarn(errormsg, NxsReader::AMBIGUOUS_CONTENT_WARNING, token.GetFilePosition(), token.GetFileLine(), token.GetFileColumn());
+    }
 
-	if (notifyStartStop)
-		ExecuteStarting();
-	bool keepReading = true;
-	for (;keepReading && !token.AtEOF();)
-		{
-		if (checkingSignals && NxsReader::getNumSignalIntsCaught() != numSigInts)
-			{
-			throw NxsSignalCanceledParseException("Reading NEXUS content");
-			}
-		if (token.Equals("BEGIN"))
-			{
-			token.SetEOFAllowed(false); /*must exit the block before and EOF*/
-			token.GetNextToken();
-			token.SetBlockName(token.GetTokenReference().c_str());
-			for (currBlock = blockList; currBlock != NULL; currBlock = currBlock->next)
-				{
-				if (currBlock->CanReadBlockType(token))
-					break;
-				}
-			NxsString currBlockName = token.GetToken();
-			currBlockName.ToUpper();
-			NxsBlockFactory * sourceOfBlock = NULL;
-			if (currBlock == NULL)
-				{
-				try
-					{
-					currBlock = CreateBlockFromFactories(currBlockName, token, &sourceOfBlock);
-					}
-				catch (NxsException& x)
-					{
-					NexusError(x.msg, x.pos, x.line, x.col);
-					token.SetBlockName(0L);
-					token.SetEOFAllowed(true);
-					return;
-					}
-			    }
-			if (currBlock == NULL)
-				{
-				SkippingBlock(currBlockName);
-				if (!ReadUntilEndblock(token, currBlockName))
-					{
-					token.SetBlockName(0L);
-					token.SetEOFAllowed(true);
-					return;
-					}
-				}
-			else if (currBlock->IsEnabled())
-				keepReading = ExecuteBlock(token, currBlockName, currBlock, sourceOfBlock);
-			else
-				{
-				SkippingDisabledBlock(token.GetToken());
-				if (sourceOfBlock)
-					sourceOfBlock->BlockSkipped(currBlock);
-				if (!ReadUntilEndblock(token, currBlockName))
-					{
-					token.SetBlockName(0L);
-					token.SetEOFAllowed(true);
-					return;
-					}
-				}
-			currBlock = NULL;
-			token.SetEOFAllowed(true);
-			token.SetBlockName(0L);
-			}	// if (token.Equals("BEGIN"))
-		else if (token.Equals("&SHOWALL"))
-			{
-			for (NxsBlock*	showBlock = blockList; showBlock != NULL; showBlock = showBlock->next)
-				DebugReportBlock(*showBlock);
-			}
-		else if (token.Equals("&LEAVE"))
-			break;
-		if (keepReading)
-			{
-			token.SetLabileFlagBit(NxsToken::saveCommandComments);
-			token.GetNextToken();
-			}
-		}
-	if (notifyStartStop)
-		ExecuteStopping();
+    if (notifyStartStop)
+        ExecuteStarting();
 
-	currBlock = NULL;
-	}
+    bool keepReading = true;
+    for (; keepReading && !token.AtEOF();)
+    {
+        if (checkingSignals && NxsReader::getNumSignalIntsCaught() != numSigInts)
+        {
+            throw NxsSignalCanceledParseException("Reading NEXUS content");
+        }
+
+        if (token.Equals("BEGIN"))
+        {
+            token.SetEOFAllowed(false);
+            token.GetNextToken();
+            token.SetBlockName(token.GetTokenReference().c_str());
+            NxsString currBlockName = token.GetToken();
+            currBlockName.ToUpper();
+
+            // Skip the ASSUMPTIONS block
+            if (currBlockName.Equals("ASSUMPTIONS"))
+            {
+                std::cout << "Skipping block: " << currBlockName << std::endl;
+                if (!ReadUntilEndblock(token, currBlockName))
+                {
+                    std::cerr << "Error skipping block: " << currBlockName << std::endl;
+                    token.SetBlockName(0L);
+                    token.SetEOFAllowed(true);
+                    return;
+                }
+                std::cout << "Successfully skipped the block: " << currBlockName << std::endl;
+                token.SetEOFAllowed(true);  // Ensure we reset EOF allowance after skipping
+                continue; // Skip further processing for ASSUMPTIONS block
+            }
+
+            // Process recognized blocks
+            for (currBlock = blockList; currBlock != NULL; currBlock = currBlock->next)
+            {
+                if (currBlock->CanReadBlockType(token))
+                    break;
+            }
+
+            NxsBlockFactory *sourceOfBlock = NULL;
+            if (currBlock == NULL)
+            {
+                try
+                {
+                    currBlock = CreateBlockFromFactories(currBlockName, token, &sourceOfBlock);
+                }
+                catch (NxsException &x)
+                {
+                    NexusError(x.msg, x.pos, x.line, x.col);
+                    token.SetBlockName(0L);
+                    token.SetEOFAllowed(true);
+                    return;
+                }
+            }
+
+            if (currBlock == NULL)
+            {
+                SkippingBlock(currBlockName);
+                if (!ReadUntilEndblock(token, currBlockName))
+                {
+                    token.SetBlockName(0L);
+                    token.SetEOFAllowed(true);
+                    return;
+                }
+            }
+            else if (currBlock->IsEnabled())
+            {
+                keepReading = ExecuteBlock(token, currBlockName, currBlock, sourceOfBlock);
+            }
+            else
+            {
+                SkippingDisabledBlock(token.GetToken());
+                if (sourceOfBlock)
+                    sourceOfBlock->BlockSkipped(currBlock);
+                if (!ReadUntilEndblock(token, currBlockName))
+                {
+                    token.SetBlockName(0L);
+                    token.SetEOFAllowed(true);
+                    return;
+                }
+            }
+
+            currBlock = NULL;
+            token.SetEOFAllowed(true);
+            token.SetBlockName(0L);
+        } // if (token.Equals("BEGIN"))
+        else if (token.Equals("&SHOWALL"))
+        {
+            for (NxsBlock *showBlock = blockList; showBlock != NULL; showBlock = showBlock->next)
+                DebugReportBlock(*showBlock);
+        }
+        else if (token.Equals("&LEAVE"))
+            break;
+
+        if (keepReading)
+        {
+            token.SetLabileFlagBit(NxsToken::saveCommandComments);
+            token.GetNextToken();
+        }
+    }
+
+    if (notifyStartStop)
+        ExecuteStopping();
+
+    currBlock = NULL;
+}
+
+
+
 
 void NxsReader::ClearContent()
 	{
@@ -1065,28 +1088,66 @@ void NxsReader::SkippingDisabledBlock(
 
 
 /*! Used internally to skip until teh END; or ENDBLOCK; command. */
-bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string & )
-	{
-	for (;;)
-		{
-		token.GetNextToken();
-		if (token.Equals("END") || token.Equals("ENDBLOCK"))
-			{
-			token.GetNextToken();
-			if (!token.Equals(";"))
-				{
-				std::string errormsg = "Expecting ';' after END or ENDBLOCK command, but found ";
-				errormsg += token.GetToken();
-				errormsg += " instead";
-				NexusError(NxsString(errormsg.c_str()), token.GetFilePosition(), token.GetFileLine(), token.GetFileColumn());
-				return false;
-				}
-			return true;
-			}
-		else
-			token.ProcessAsCommand(NULL);
-		}
-	}
+bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
+{
+    // Debugging: Indicate that we are entering the ReadUntilEndblock function
+    std::cout << "Skipping block: " << blockName << std::endl;
+
+    while (!token.AtEOF())
+    {
+        token.GetNextToken();
+
+        // Check if we've reached the END or ENDBLOCK statement
+        if (token.Equals("END") || token.Equals("ENDBLOCK"))
+        {
+            token.GetNextToken();
+            if (token.Equals(";"))
+            {
+                std::cout << "Successfully skipped the block: " << blockName << std::endl; // Debugging output
+                return true; // Successfully skipped the block
+            }
+            else
+            {
+                std::string errormsg = "Expecting ';' after END or ENDBLOCK command, but found ";
+                errormsg += token.GetToken();
+                errormsg += " instead";
+                NexusError(NxsString(errormsg.c_str()), token.GetFilePosition(), token.GetFileLine(), token.GetFileColumn());
+                return false;
+            }
+        }
+
+        // If the token matches "BEGIN", handle nested BEGIN blocks to avoid misreading nested structures
+        if (token.Equals("BEGIN"))
+        {
+            // Read the next token (the block name) and recursively call ReadUntilEndblock
+            token.GetNextToken();
+            std::string nestedBlockName = token.GetToken();
+            std::transform(nestedBlockName.begin(), nestedBlockName.end(), nestedBlockName.begin(), ::toupper);
+
+            // Debugging: Indicate that we are skipping a nested block
+            std::cout << "Skipping nested block: " << nestedBlockName << std::endl;
+
+            if (!ReadUntilEndblock(token, nestedBlockName))
+            {
+                return false; // Failed to read nested block correctly
+            }
+        }
+        else
+        {
+            // Process the token as a command or comment, which helps in ignoring contents of the block
+            token.ProcessAsCommand(nullptr);
+
+            // Debugging: Output the current token being processed
+            std::cout << "Processing token: " << token.GetToken() << std::endl;
+        }
+    }
+
+    // If we reach the end of the file without finding an END or ENDBLOCK, return false
+    std::string errormsg = "Unexpected end-of-file while reading " + blockName + " block.";
+    NexusError(NxsString(errormsg.c_str()), token.GetFilePosition(), token.GetFileLine(), token.GetFileColumn());
+    return false;
+}
+
 
 /*! Convenience function for setting the NxsTaxaBlockFactory */
 void NxsReader::SetTaxaBlockFactory(NxsTaxaBlockFactory *f)
@@ -1126,6 +1187,7 @@ NxsCharactersBlockAPI *NxsReader::GetLastStoredCharactersBlock()
 	inherits from NxsTaxaBlockAPI (static_cast is used). This will be true if the
 	client code has not derived its own NxsBlock for reading TAXA blocks
 */
+
 NxsTreesBlockAPI *NxsReader::GetLastStoredTreesBlock()
 	{
 	const std::string idstring("TREES");
