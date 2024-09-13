@@ -24,6 +24,7 @@
 #include <sstream>
 #include <iterator>
 #include <iostream> 
+#include <regex> 
 #include "nxsreader.h"
 #include "nxsdefs.h"
 #include "nxscharactersblock.h"
@@ -1087,15 +1088,83 @@ void NxsReader::SkippingDisabledBlock(
 	}
 
 
-/*! Used internally to skip until teh END; or ENDBLOCK; command. */
+// Helper function to parse and extract ordered and unordered typeset information
+void ExtractTypesetInfo(const std::string &content, std::vector<int> &ordered, std::vector<int> &unordered)
+{
+    // Refined regular expression to capture ordered and unordered sets from TYPESET
+    std::regex typesetRegex(R"(ord\s*:\s*([\d\s]+(?:,\s*\d+)*),?\s*unord\s*:\s*([\d\s,-]+(?:,\s*\d+)*)?)", std::regex_constants::icase);
+    std::smatch matches;
+
+    // Perform regex search
+    if (std::regex_search(content, matches, typesetRegex))
+    {
+        // Debugging: Display the matched content
+        std::cout << "Extracted from ASSUMPTIONS block: " << matches.str() << std::endl;
+
+        // Parse ordered set if matched
+        if (matches.size() > 1 && matches[1].matched)
+        {
+            std::istringstream ordStream(matches[1].str());
+            int num;
+            while (ordStream >> num)
+            {
+                ordered.push_back(num);
+                if (ordStream.peek() == ',')
+                    ordStream.ignore();
+            }
+        }
+
+        // Parse unordered set, including ranges if matched
+        if (matches.size() > 2 && matches[2].matched)
+        {
+            std::istringstream unordStream(matches[2].str());
+            std::string item;
+            std::set<int> unorderedSet; // Use a set to handle duplicates automatically
+            while (std::getline(unordStream, item, ','))
+            {
+                std::size_t dashPos = item.find('-');
+                if (dashPos != std::string::npos)
+                {
+                    // Handle range e.g., "1-7"
+                    int start = std::stoi(item.substr(0, dashPos));
+                    int end = std::stoi(item.substr(dashPos + 1));
+                    for (int i = start; i <= end; ++i)
+                        unorderedSet.insert(i);
+                }
+                else
+                {
+                    // Single number
+                    if (!item.empty())
+                        unorderedSet.insert(std::stoi(item));
+                }
+            }
+
+            // Convert set to vector for ordered display
+            unordered.assign(unorderedSet.begin(), unorderedSet.end());
+        }
+    }
+    else
+    {
+        std::cerr << "Failed to match TYPESET pattern in ASSUMPTIONS block." << std::endl;
+    }
+}
+
 bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
 {
-    // Debugging: Indicate that we are entering the ReadUntilEndblock function
-    std::cout << "Skipping block: " << blockName << std::endl;
+    std::string blockContent; // To store content of the ASSUMPTIONS block for parsing TYPESET
+    bool isAssumptionsBlock = blockName == "ASSUMPTIONS";
+
+    std::vector<int> orderedChars;
+    std::vector<int> unorderedChars;
 
     while (!token.AtEOF())
     {
         token.GetNextToken();
+
+        if (isAssumptionsBlock)
+        {
+            blockContent += token.GetToken() + " "; // Accumulate content for TYPESET parsing
+        }
 
         // Check if we've reached the END or ENDBLOCK statement
         if (token.Equals("END") || token.Equals("ENDBLOCK"))
@@ -1103,7 +1172,42 @@ bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
             token.GetNextToken();
             if (token.Equals(";"))
             {
-                std::cout << "Successfully skipped the block: " << blockName << std::endl; // Debugging output
+                if (isAssumptionsBlock)
+                {
+                    // Extract and print TYPESET information if it's the ASSUMPTIONS block
+                    ExtractTypesetInfo(blockContent, orderedChars, unorderedChars);
+
+                    // Display the extracted information
+                    std::cout << "Ordered: ";
+                    for (size_t i = 0; i < orderedChars.size(); ++i)
+                    {
+                        std::cout << orderedChars[i];
+                        if (i < orderedChars.size() - 1) std::cout << ", ";
+                    }
+
+                    std::cout << " | Unordered: ";
+                    for (size_t i = 0; i < unorderedChars.size(); ++i)
+                    {
+                        std::cout << unorderedChars[i];
+                        if (i < unorderedChars.size() - 1) std::cout << ", ";
+                    }
+                    std::cout << std::endl;
+
+                    std::cout << "Partition Ordered: (";
+                    for (size_t i = 0; i < orderedChars.size(); ++i)
+                    {
+                        std::cout << orderedChars[i];
+                        if (i < orderedChars.size() - 1) std::cout << " ";
+                    }
+                    std::cout << ") | Partition Unordered: (";
+                    for (size_t i = 0; i < unorderedChars.size(); ++i)
+                    {
+                        std::cout << unorderedChars[i];
+                        if (i < unorderedChars.size() - 1) std::cout << " ";
+                    }
+                    std::cout << ")" << std::endl;
+                }
+                std::cout << "Successfully skipped the block: " << blockName << std::endl;
                 return true; // Successfully skipped the block
             }
             else
@@ -1119,14 +1223,10 @@ bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
         // If the token matches "BEGIN", handle nested BEGIN blocks to avoid misreading nested structures
         if (token.Equals("BEGIN"))
         {
-            // Read the next token (the block name) and recursively call ReadUntilEndblock
             token.GetNextToken();
             std::string nestedBlockName = token.GetToken();
             std::transform(nestedBlockName.begin(), nestedBlockName.end(), nestedBlockName.begin(), ::toupper);
-
-            // Debugging: Indicate that we are skipping a nested block
             std::cout << "Skipping nested block: " << nestedBlockName << std::endl;
-
             if (!ReadUntilEndblock(token, nestedBlockName))
             {
                 return false; // Failed to read nested block correctly
@@ -1134,11 +1234,10 @@ bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
         }
         else
         {
-            // Process the token as a command or comment, which helps in ignoring contents of the block
-            token.ProcessAsCommand(nullptr);
-
-            // Debugging: Output the current token being processed
-            std::cout << "Processing token: " << token.GetToken() << std::endl;
+            // Skip processing token messages for a cleaner output
+            if (!isAssumptionsBlock) {
+                token.ProcessAsCommand(nullptr);
+            }
         }
     }
 
