@@ -30,6 +30,7 @@
 #include "nxscharactersblock.h"
 #include "nxstaxablock.h"
 #include "nxstreesblock.h"
+#include "utils.h"
 
 using namespace std;
 
@@ -1088,11 +1089,49 @@ void NxsReader::SkippingDisabledBlock(
 	}
 
 
+// Helper function to trim whitespace
+std::string trim(const std::string &s)
+{
+    auto start = s.begin();
+    while (start != s.end() && std::isspace(*start)) {
+        start++;
+    }
+
+    auto end = s.end();
+    do {
+        end--;
+    } while (std::distance(start, end) > 0 && std::isspace(*end));
+
+    return std::string(start, end + 1);
+}
+
+// Helper function to convert ranges to individual numbers for printing with ellipsis
+std::string ExpandRangesWithEllipsis(const std::vector<int> &chars, size_t maxDisplayed = 10)
+{
+    std::ostringstream result;
+    size_t limit = std::min(maxDisplayed, chars.size());
+    
+    // Display up to maxDisplayed characters and then use ellipsis
+    for (size_t i = 0; i < limit; ++i)
+    {
+        if (i != 0)
+            result << ", ";
+        result << chars[i];
+    }
+
+    if (chars.size() > maxDisplayed)
+    {
+        result << ", ... " << chars.back();
+    }
+
+    return result.str();
+}
+
 // Helper function to parse and extract ordered and unordered typeset information
 void ExtractTypesetInfo(const std::string &content, std::vector<int> &ordered, std::vector<int> &unordered)
 {
-    // Refined regular expression to capture ordered and unordered sets from TYPESET
-    std::regex typesetRegex(R"(ord\s*:\s*([\d\s]+(?:,\s*\d+)*),?\s*unord\s*:\s*([\d\s,-]+(?:,\s*\d+)*)?)", std::regex_constants::icase);
+    // Adjusting the regex to capture more scenarios, including optional whitespace and punctuation variations
+    std::regex typesetRegex(R"(unord\s*:\s*([\d\s,-]+)\s*,?\s*ord\s*:\s*([\d\s,]+)\s*;)", std::regex_constants::icase);
     std::smatch matches;
 
     // Perform regex search
@@ -1101,27 +1140,16 @@ void ExtractTypesetInfo(const std::string &content, std::vector<int> &ordered, s
         // Debugging: Display the matched content
         std::cout << "Extracted from ASSUMPTIONS block: " << matches.str() << std::endl;
 
-        // Parse ordered set if matched
+        // Parse unordered set, including ranges if matched
         if (matches.size() > 1 && matches[1].matched)
         {
-            std::istringstream ordStream(matches[1].str());
-            int num;
-            while (ordStream >> num)
-            {
-                ordered.push_back(num);
-                if (ordStream.peek() == ',')
-                    ordStream.ignore();
-            }
-        }
-
-        // Parse unordered set, including ranges if matched
-        if (matches.size() > 2 && matches[2].matched)
-        {
-            std::istringstream unordStream(matches[2].str());
+            std::istringstream unordStream(matches[1].str());
             std::string item;
             std::set<int> unorderedSet; // Use a set to handle duplicates automatically
             while (std::getline(unordStream, item, ','))
             {
+                item = trim(item); // Trim the string
+
                 std::size_t dashPos = item.find('-');
                 if (dashPos != std::string::npos)
                 {
@@ -1134,13 +1162,27 @@ void ExtractTypesetInfo(const std::string &content, std::vector<int> &ordered, s
                 else
                 {
                     // Single number
-                    if (!item.empty())
+                    if (!item.empty()) { // Only convert if not empty
                         unorderedSet.insert(std::stoi(item));
+                    }
                 }
             }
 
             // Convert set to vector for ordered display
             unordered.assign(unorderedSet.begin(), unorderedSet.end());
+        }
+
+        // Parse ordered set if matched
+        if (matches.size() > 2 && matches[2].matched)
+        {
+            std::istringstream ordStream(matches[2].str());
+            int num;
+            while (ordStream >> num)
+            {
+                ordered.push_back(num);
+                if (ordStream.peek() == ',')
+                    ordStream.ignore();
+            }
         }
     }
     else
@@ -1178,36 +1220,23 @@ bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
                     ExtractTypesetInfo(blockContent, orderedChars, unorderedChars);
 
                     // Display the extracted information
-                    std::cout << "Ordered: ";
-                    for (size_t i = 0; i < orderedChars.size(); ++i)
-                    {
-                        std::cout << orderedChars[i];
-                        if (i < orderedChars.size() - 1) std::cout << ", ";
-                    }
-
-                    std::cout << " | Unordered: ";
-                    for (size_t i = 0; i < unorderedChars.size(); ++i)
-                    {
-                        std::cout << unorderedChars[i];
-                        if (i < unorderedChars.size() - 1) std::cout << ", ";
-                    }
-                    std::cout << std::endl;
+                    std::cout << "Ordered: " << ExpandRangesWithEllipsis(orderedChars);
+                    std::cout << " | Unordered: " << ExpandRangesWithEllipsis(unorderedChars) << std::endl;
 
                     std::cout << "Partition Ordered: (";
                     for (size_t i = 0; i < orderedChars.size(); ++i)
                     {
+                        if (i != 0) std::cout << " ";
                         std::cout << orderedChars[i];
-                        if (i < orderedChars.size() - 1) std::cout << " ";
                     }
                     std::cout << ") | Partition Unordered: (";
                     for (size_t i = 0; i < unorderedChars.size(); ++i)
                     {
+                        if (i != 0) std::cout << " ";
                         std::cout << unorderedChars[i];
-                        if (i < unorderedChars.size() - 1) std::cout << " ";
                     }
                     std::cout << ")" << std::endl;
                 }
-                std::cout << "Successfully skipped the block: " << blockName << std::endl;
                 return true; // Successfully skipped the block
             }
             else
@@ -1246,7 +1275,6 @@ bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
     NexusError(NxsString(errormsg.c_str()), token.GetFilePosition(), token.GetFileLine(), token.GetFileColumn());
     return false;
 }
-
 
 /*! Convenience function for setting the NxsTaxaBlockFactory */
 void NxsReader::SetTaxaBlockFactory(NxsTaxaBlockFactory *f)

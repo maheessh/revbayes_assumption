@@ -22,6 +22,7 @@
 #include "nxsassumptionsblock.h"
 #include "nxssetreader.h"
 #include "nxsreader.h"
+#include "utils.h"
 using namespace std;
 
 class BogusToIndMapper: public NxsLabelToIndicesMapper
@@ -1374,36 +1375,9 @@ std::map<std::string, std::vector<std::pair<int, int>>> ParseTypeSetBlock(const 
     return groupedRanges;
 }
 
-// Helper function to convert ranges to string
-std::string RangesToString(const std::vector<std::pair<int, int>>& ranges) {
-    std::string result;
-    for (const auto& range : ranges) {
-        if (!result.empty()) {
-            result += ", ";
-        }
-        if (range.first == range.second) {
-            result += std::to_string(range.first);
-        } else {
-            result += std::to_string(range.first) + "-" + std::to_string(range.second);
-        }
-    }
-    return result;
-}
 
-// Helper function to expand ranges into individual numbers and wrap them in parentheses
-std::string ExpandRanges(const std::vector<std::pair<int, int>>& ranges) {
-    std::string result = "(";
-    for (const auto& range : ranges) {
-        for (int i = range.first; i <= range.second; ++i) {
-            if (result.length() > 1) { // Skip initial bracket
-                result += " ";
-            }
-            result += std::to_string(i);
-        }
-    }
-    result += ")";
-    return result;
-}
+
+
 
 // Example usage within NxsAssumptionsBlock
 void NxsAssumptionsBlock::HandleTypeSet(NxsToken &token) {
