@@ -1276,6 +1276,7 @@ bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
     return false;
 }
 
+
 /*! Convenience function for setting the NxsTaxaBlockFactory */
 void NxsReader::SetTaxaBlockFactory(NxsTaxaBlockFactory *f)
 	{
