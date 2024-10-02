@@ -1127,52 +1127,65 @@ std::string ExpandRangesWithEllipsis(const std::vector<int> &chars, size_t maxDi
     return result.str();
 }
 
-// Helper function to parse and extract ordered and unordered typeset information
+// Helper function to print matrix of integers
+void PrintMatrix(const std::vector<int> &data, const std::string &title, size_t columns = 10)
+{
+    std::cout << title << " Matrix:" << std::endl;
+    for (size_t i = 0; i < data.size(); ++i)
+    {
+        std::cout << data[i] << "\t";  // Tab-separated values for matrix-like output
+        if ((i + 1) % columns == 0)
+        {
+            std::cout << std::endl;  // Newline after every 'columns' entries
+        }
+    }
+
+    if (data.size() % columns != 0)
+    {
+        std::cout << std::endl;  // Final newline for incomplete rows
+    }
+}
+
+// Function to extract ordered and unordered sets
 void ExtractTypesetInfo(const std::string &content, std::vector<int> &ordered, std::vector<int> &unordered)
 {
-    // Adjusting the regex to capture more scenarios, including optional whitespace and punctuation variations
+    // Adjusted regex to capture multiple unord ranges and individual numbers
     std::regex typesetRegex(R"(unord\s*:\s*([\d\s,-]+)\s*,?\s*ord\s*:\s*([\d\s,]+)\s*;)", std::regex_constants::icase);
     std::smatch matches;
 
-    // Perform regex search
     if (std::regex_search(content, matches, typesetRegex))
     {
-        // Debugging: Display the matched content
         std::cout << "Extracted from ASSUMPTIONS block: " << matches.str() << std::endl;
 
-        // Parse unordered set, including ranges if matched
+        // Parse unordered set (including ranges)
         if (matches.size() > 1 && matches[1].matched)
         {
             std::istringstream unordStream(matches[1].str());
             std::string item;
-            std::set<int> unorderedSet; // Use a set to handle duplicates automatically
-            while (std::getline(unordStream, item, ','))
+            std::set<int> unorderedSet;
+            while (std::getline(unordStream, item, ' '))
             {
-                item = trim(item); // Trim the string
+                item = trim(item);
 
+                // Check for range (e.g., 1-7)
                 std::size_t dashPos = item.find('-');
                 if (dashPos != std::string::npos)
                 {
-                    // Handle range e.g., "1-7"
                     int start = std::stoi(item.substr(0, dashPos));
                     int end = std::stoi(item.substr(dashPos + 1));
                     for (int i = start; i <= end; ++i)
-                        unorderedSet.insert(i);
+                        unorderedSet.insert(i); // Insert range
                 }
-                else
+                else if (!item.empty() && std::isdigit(item[0]))
                 {
-                    // Single number
-                    if (!item.empty()) { // Only convert if not empty
-                        unorderedSet.insert(std::stoi(item));
-                    }
+                    unorderedSet.insert(std::stoi(item)); // Insert single number
                 }
             }
 
-            // Convert set to vector for ordered display
             unordered.assign(unorderedSet.begin(), unorderedSet.end());
         }
 
-        // Parse ordered set if matched
+        // Parse ordered set
         if (matches.size() > 2 && matches[2].matched)
         {
             std::istringstream ordStream(matches[2].str());
@@ -1184,12 +1197,59 @@ void ExtractTypesetInfo(const std::string &content, std::vector<int> &ordered, s
                     ordStream.ignore();
             }
         }
+
+        // Display matrices
+        // PrintMatrix(ordered, "Ordered");
+        // PrintMatrix(unordered, "Unordered");
     }
     else
     {
         std::cerr << "Failed to match TYPESET pattern in ASSUMPTIONS block." << std::endl;
     }
 }
+
+// Function to split matrix into ordered and unordered sub-matrices
+void SplitMatrixByAssumptions(const std::vector<std::string> &taxa, const std::vector<std::string> &matrix, 
+                              const std::vector<int> &ordered, const std::vector<int> &unordered,
+                              std::vector<std::string> &orderedMatrix, std::vector<std::string> &unorderedMatrix)
+{
+    // Iterate over each taxon row in the matrix
+    for (size_t i = 0; i < matrix.size(); ++i)
+    {
+        std::string orderedRow, unorderedRow;
+
+        // Split the row based on the ordered and unordered sets
+        for (size_t j = 0; j < matrix[i].size(); ++j)
+        {
+            if (std::find(ordered.begin(), ordered.end(), j + 1) != ordered.end())
+            {
+                orderedRow += matrix[i][j];  // Add character to ordered matrix
+            }
+            if (std::find(unordered.begin(), unordered.end(), j + 1) != unordered.end())
+            {
+                unorderedRow += matrix[i][j];  // Add character to unordered matrix
+            }
+        }
+
+        orderedMatrix.push_back(orderedRow);
+        unorderedMatrix.push_back(unorderedRow);
+    }
+
+    // Output ordered matrix
+    std::cout << "Ordered Character Matrix:" << std::endl;
+    for (size_t i = 0; i < orderedMatrix.size(); ++i)
+    {
+        std::cout << taxa[i] << ": " << orderedMatrix[i] << std::endl;
+    }
+
+    // Output unordered matrix
+    std::cout << "Unordered Character Matrix:" << std::endl;
+    for (size_t i = 0; i < unorderedMatrix.size(); ++i)
+    {
+        std::cout << taxa[i] << ": " << unorderedMatrix[i] << std::endl;
+    }
+}
+
 
 bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
 {
