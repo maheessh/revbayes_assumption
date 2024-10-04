@@ -1127,24 +1127,6 @@ std::string ExpandRangesWithEllipsis(const std::vector<int> &chars, size_t maxDi
     return result.str();
 }
 
-// Helper function to print matrix of integers
-void PrintMatrix(const std::vector<int> &data, const std::string &title, size_t columns = 10)
-{
-    std::cout << title << " Matrix:" << std::endl;
-    for (size_t i = 0; i < data.size(); ++i)
-    {
-        std::cout << data[i] << "\t";  // Tab-separated values for matrix-like output
-        if ((i + 1) % columns == 0)
-        {
-            std::cout << std::endl;  // Newline after every 'columns' entries
-        }
-    }
-
-    if (data.size() % columns != 0)
-    {
-        std::cout << std::endl;  // Final newline for incomplete rows
-    }
-}
 
 // Function to extract ordered and unordered sets
 void ExtractTypesetInfo(const std::string &content, std::vector<int> &ordered, std::vector<int> &unordered)
@@ -1198,9 +1180,6 @@ void ExtractTypesetInfo(const std::string &content, std::vector<int> &ordered, s
             }
         }
 
-        // Display matrices
-        // PrintMatrix(ordered, "Ordered");
-        // PrintMatrix(unordered, "Unordered");
     }
     else
     {
