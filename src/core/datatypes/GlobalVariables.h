@@ -12,8 +12,12 @@ extern std::vector<std::pair<int, int>> unorderedMatrix;
 const std::vector<std::pair<int, int>>& getOrderedMatrix();
 const std::vector<std::pair<int, int>>& getUnorderedMatrix();
 
-// Setter functions (optional, if needed)
+// Setter functions
 void setOrderedMatrix(const std::vector<std::pair<int, int>>& matrix);
 void setUnorderedMatrix(const std::vector<std::pair<int, int>>& matrix);
+
+// Registration functions for interpreter
+void registerOrderedMatrix();
+void registerUnorderedMatrix();
 
 #endif // GLOBAL_VARIABLES_H

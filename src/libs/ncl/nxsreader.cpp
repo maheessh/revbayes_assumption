@@ -689,18 +689,19 @@ void NxsReader::CoreExecutionTasks(NxsToken &token, bool notifyStartStop)
             NxsString currBlockName = token.GetToken();
             currBlockName.ToUpper();
 
-            // Skip the ASSUMPTIONS block
+            // Process the ASSUMPTIONS block
             if (currBlockName.Equals("ASSUMPTIONS"))
             {
-                std::cout << "Skipping block: " << currBlockName << std::endl;
+                std::cout << "\nProcessing: " << currBlockName << " Block " << std::endl;
+				std::cout << "================================================" << std::endl;
                 if (!ReadUntilEndblock(token, currBlockName))
                 {
-                    std::cerr << "Error skipping block: " << currBlockName << std::endl;
+                    std::cerr << "Error processing block: " << currBlockName << std::endl;
                     token.SetBlockName(0L);
                     token.SetEOFAllowed(true);
                     return;
                 }
-                std::cout << "Successfully skipped the block: " << currBlockName << std::endl;
+                std::cout << "\nSuccessfully read: " << currBlockName << " Block! \n" << std::endl;
                 token.SetEOFAllowed(true);  // Ensure we reset EOF allowance after skipping
                 continue; // Skip further processing for ASSUMPTIONS block
             }
@@ -1105,33 +1106,28 @@ std::string trim(const std::string &s)
     return std::string(start, end + 1);
 }
 
-// Helper function to convert ranges to individual numbers for printing with ellipsis
-std::string ExpandRangesWithEllipsis(const std::vector<int> &chars, size_t maxDisplayed = 10)
+
+// Helper function to print all numbers in ranges
+std::string ExpandRanges(const std::vector<int> &chars)
 {
     std::ostringstream result;
-    size_t limit = std::min(maxDisplayed, chars.size());
     
-    // Display up to maxDisplayed characters and then use ellipsis
-    for (size_t i = 0; i < limit; ++i)
+    for (size_t i = 0; i < chars.size(); ++i)
     {
         if (i != 0)
-            result << ", ";
+            result << ", "; // Use space instead of comma for partition format
         result << chars[i];
-    }
-
-    if (chars.size() > maxDisplayed)
-    {
-        result << ", ... " << chars.back();
     }
 
     return result.str();
 }
 
-
-// Function to extract ordered and unordered sets
-void ExtractTypesetInfo(const std::string &content, std::vector<int> &ordered, std::vector<int> &unordered)
+// Function to extract ordered and unordered sets and display them
+void ExtractTypesetInfo(const std::string &content, 
+                        std::vector<int> &ordered, 
+                        std::vector<int> &unordered)
 {
-    // Adjusted regex to capture multiple unord ranges and individual numbers
+    // Regex to capture unord and ord sets
     std::regex typesetRegex(R"(unord\s*:\s*([\d\s,-]+)\s*,?\s*ord\s*:\s*([\d\s,]+)\s*;)", std::regex_constants::icase);
     std::smatch matches;
 
@@ -1180,52 +1176,66 @@ void ExtractTypesetInfo(const std::string &content, std::vector<int> &ordered, s
             }
         }
 
+        // Store ordered and unordered sets in assumption matrix
+        std::vector<std::vector<int>> assumptionsMatrix = { ordered, unordered };
+        std::vector<std::string> rowNames = { "Ordered", "Unordered" };
+
+        // Store ordered and unordered sets in separate matrices
+        std::vector<std::vector<int>> orderedMatrix = { ordered };
+        std::vector<std::vector<int>> unorderedMatrix = { unordered };
+
+        // Print assumptionsMatrix
+        if (!assumptionsMatrix.empty()) {
+            std::cout << "\nMatrix created: assumptionsMatrix.\n";
+            for (size_t i = 0; i < assumptionsMatrix.size(); ++i) {
+                std::cout << rowNames[i] << " Set: (" << ExpandRanges(assumptionsMatrix[i]) << ")\n";
+            }
+        } else {
+            std::cerr << "\nFailed to create assumptionsMatrix.\n";
+        }
+
+        // Print orderedMatrix
+        if (!orderedMatrix.empty()) {
+            std::cout << "\nMatrix created: orderedMatrix.\n";
+            std::cout << "Ordered Matrix Row: (" << ExpandRanges(orderedMatrix[0]) << ")\n";
+        } else {
+            std::cerr << "\nFailed to create orderedMatrix.\n";
+        }
+
+        // Print unorderedMatrix
+        if (!unorderedMatrix.empty()) {
+            std::cout << "\nMatrix created: unorderedMatrix.\n";
+            std::cout << "Unordered Matrix Row: (" << ExpandRanges(unorderedMatrix[0]) << ")\n";
+        } else {
+            std::cerr << "\nFailed to create unorderedMatrix.\n";
+        }
+
+        // Print the ordered character matrix
+        std::cout << "\nOrdered Character Matrix:\n";
+        if (!ordered.empty()) {
+            for (const auto &val : ordered) {
+                std::cout << val << " ";
+            }
+            std::cout << std::endl;
+        } else {
+            std::cerr << "Error: Ordered matrix is empty.\n";
+        }
+
+        // Print the unordered character matrix
+        std::cout << "\nUnordered Character Matrix:\n";
+        if (!unordered.empty()) {
+            for (const auto &val : unordered) {
+                std::cout << val << " ";
+            }
+            std::cout << std::endl;
+        } else {
+            std::cerr << "Error: Unordered matrix is empty.\n";
+        }
+
     }
     else
     {
         std::cerr << "Failed to match TYPESET pattern in ASSUMPTIONS block." << std::endl;
-    }
-}
-
-// Function to split matrix into ordered and unordered sub-matrices
-void SplitMatrixByAssumptions(const std::vector<std::string> &taxa, const std::vector<std::string> &matrix, 
-                              const std::vector<int> &ordered, const std::vector<int> &unordered,
-                              std::vector<std::string> &orderedMatrix, std::vector<std::string> &unorderedMatrix)
-{
-    // Iterate over each taxon row in the matrix
-    for (size_t i = 0; i < matrix.size(); ++i)
-    {
-        std::string orderedRow, unorderedRow;
-
-        // Split the row based on the ordered and unordered sets
-        for (size_t j = 0; j < matrix[i].size(); ++j)
-        {
-            if (std::find(ordered.begin(), ordered.end(), j + 1) != ordered.end())
-            {
-                orderedRow += matrix[i][j];  // Add character to ordered matrix
-            }
-            if (std::find(unordered.begin(), unordered.end(), j + 1) != unordered.end())
-            {
-                unorderedRow += matrix[i][j];  // Add character to unordered matrix
-            }
-        }
-
-        orderedMatrix.push_back(orderedRow);
-        unorderedMatrix.push_back(unorderedRow);
-    }
-
-    // Output ordered matrix
-    std::cout << "Ordered Character Matrix:" << std::endl;
-    for (size_t i = 0; i < orderedMatrix.size(); ++i)
-    {
-        std::cout << taxa[i] << ": " << orderedMatrix[i] << std::endl;
-    }
-
-    // Output unordered matrix
-    std::cout << "Unordered Character Matrix:" << std::endl;
-    for (size_t i = 0; i < unorderedMatrix.size(); ++i)
-    {
-        std::cout << taxa[i] << ": " << unorderedMatrix[i] << std::endl;
     }
 }
 
@@ -1242,9 +1252,10 @@ bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
     {
         token.GetNextToken();
 
+        // Accumulate content for TYPESET parsing if we are in the ASSUMPTIONS block
         if (isAssumptionsBlock)
         {
-            blockContent += token.GetToken() + " "; // Accumulate content for TYPESET parsing
+            blockContent += token.GetToken() + " ";
         }
 
         // Check if we've reached the END or ENDBLOCK statement
@@ -1255,31 +1266,14 @@ bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
             {
                 if (isAssumptionsBlock)
                 {
-                    // Extract and print TYPESET information if it's the ASSUMPTIONS block
+                    // Extract and store TYPESET information
                     ExtractTypesetInfo(blockContent, orderedChars, unorderedChars);
-
-                    // Display the extracted information
-                    std::cout << "Ordered: " << ExpandRangesWithEllipsis(orderedChars);
-                    std::cout << " | Unordered: " << ExpandRangesWithEllipsis(unorderedChars) << std::endl;
-
-                    std::cout << "Partition Ordered: (";
-                    for (size_t i = 0; i < orderedChars.size(); ++i)
-                    {
-                        if (i != 0) std::cout << " ";
-                        std::cout << orderedChars[i];
-                    }
-                    std::cout << ") | Partition Unordered: (";
-                    for (size_t i = 0; i < unorderedChars.size(); ++i)
-                    {
-                        if (i != 0) std::cout << " ";
-                        std::cout << unorderedChars[i];
-                    }
-                    std::cout << ")" << std::endl;
                 }
                 return true; // Successfully skipped the block
             }
             else
             {
+                // Handle the case where the END or ENDBLOCK statement is not followed by a semicolon
                 std::string errormsg = "Expecting ';' after END or ENDBLOCK command, but found ";
                 errormsg += token.GetToken();
                 errormsg += " instead";
@@ -1288,13 +1282,15 @@ bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
             }
         }
 
-        // If the token matches "BEGIN", handle nested BEGIN blocks to avoid misreading nested structures
+        // Handle nested BEGIN blocks to avoid misreading nested structures
         if (token.Equals("BEGIN"))
         {
             token.GetNextToken();
             std::string nestedBlockName = token.GetToken();
             std::transform(nestedBlockName.begin(), nestedBlockName.end(), nestedBlockName.begin(), ::toupper);
             std::cout << "Skipping nested block: " << nestedBlockName << std::endl;
+
+            // Recursively process the nested block
             if (!ReadUntilEndblock(token, nestedBlockName))
             {
                 return false; // Failed to read nested block correctly
@@ -1302,18 +1298,20 @@ bool NxsReader::ReadUntilEndblock(NxsToken &token, const std::string &blockName)
         }
         else
         {
-            // Skip processing token messages for a cleaner output
-            if (!isAssumptionsBlock) {
+            // Process tokens outside of the ASSUMPTIONS block for cleaner output
+            if (!isAssumptionsBlock)
+            {
                 token.ProcessAsCommand(nullptr);
             }
         }
     }
 
-    // If we reach the end of the file without finding an END or ENDBLOCK, return false
+    // Handle case where we reach EOF without finding END or ENDBLOCK
     std::string errormsg = "Unexpected end-of-file while reading " + blockName + " block.";
     NexusError(NxsString(errormsg.c_str()), token.GetFilePosition(), token.GetFileLine(), token.GetFileColumn());
     return false;
 }
+
 
 
 /*! Convenience function for setting the NxsTaxaBlockFactory */
