@@ -14,6 +14,8 @@
 #include <iostream>
 #include <sstream>
 
+extern std::vector<std::vector<int>> assumptionMatrix;  // Global assumption matrix
+
 namespace RevBayesCore {
     
     template <class valueType>

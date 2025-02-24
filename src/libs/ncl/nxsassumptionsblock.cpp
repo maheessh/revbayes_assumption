@@ -19,11 +19,14 @@
 #include <iomanip>
 #include <climits>
 
+#include "RbVector.h"  // Includes the global variable declaration
 #include "nxsassumptionsblock.h"
 #include "nxssetreader.h"
 #include "nxsreader.h"
 #include "utils.h"
 using namespace std;
+std::vector<std::vector<int>> assumptionMatrix;  // Define the global assumption matrix
+
 
 class BogusToIndMapper: public NxsLabelToIndicesMapper
 	{
